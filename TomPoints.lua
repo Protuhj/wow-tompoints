@@ -70,7 +70,7 @@ end
 -- returns the list indices indicating where the links exist in the string or nil if no links are found.
 local function findLinks(msgText)
   local result = {}
-  local lastIdx = 0;
+  local lastIdx = 1;
   -- Append the space at the beginning so people can't unknowingly trick the code into thinking there's a link
   -- this only matters at the beginning of the string, Lua's pattern parsing stuff isn't that robust.
   local beginI, endI = string.find(" " .. msgText, LINK_PATTERN, lastIdx);
@@ -143,7 +143,7 @@ function tomPoints_OnEvent(self, event, msg,...)
     for key,val in pairs(PATTERNS) do
       -- Attempt to limit the function so it doesn't potentially infinitely-loop
       stopCount = 0;
-      local searchFromIdx = 0;
+      local searchFromIdx = 1;
 
       local startIndex = string.find(msg, val, searchFromIdx);
       -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msg, searchFromIdx))
@@ -153,18 +153,36 @@ function tomPoints_OnEvent(self, event, msg,...)
         local nextSafeIdx = isInsideLink(linkLocs, startIndex);
         if (not(nextSafeIdx)) then
           -- msg = string.gsub(msg, val, formatURL("%1"))
-          match1, match2, match3, match4, match5 = strmatch(msg, val, searchFromIdx)
+          local match1, match2, match3, match4, match5 = strmatch(msg, val, searchFromIdx)
           if match2 and match4 then
-            local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
-            -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
-            msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2, match4));
+            local match2Value = tonumber(match2);
+            local match4Value = tonumber(match4);
+            -- Need to verify that coordinates are valid.
+            -- Without this, values greater than 100 would be matched, or equal to 0 would match.
+            if (match2Value > 0 and match2Value < 100  and match4Value > 0 and match4Value < 100) then
+              local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
+              -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
+              msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+            else
+              --print("match2 or match 4 is >= 100 match2: " .. match2 .. " match4: " .. match4);
+              -- Move past the first token of the invalid match
+              searchFromIdx = searchFromIdx + match2:len();
+            end
           elseif match2 and match3 then
             --print("hello2 " .. channel .. " msg: " .. match2 .. " , " .. match3.. ": " .. formatXYLink(match1, match2))
             -- print(formatXYLink(match2, match3));
             -- msg = string.gsub(msg, val, formatXYLink(match2, match3), 1)
+            local match2Value = tonumber(match2);
+            local match4Value = tonumber(match3);
+            if (match2Value > 0 and match2Value < 100  and match3Value > 0 and match3Value < 100) then
             local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
-            -- print ("replacement starts at " .. replaceBegin .. " and ends at: " .. replaceEnd);
-            msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2, match3));
+            -- print ("replacement starts at " .. (replaceBegin - 1) .. " and ends at: " .. (replaceEnd + 1));
+            msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match3Value));
+            else
+              --print("match2 or match 3 is >= 100 match2: " .. match2 .. " match3: " .. match3);
+              -- Move past the first token of the invalid match
+              searchFromIdx = searchFromIdx + match2:len();
+            end
           end
           startIndex = string.find(msg, val, searchFromIdx);
         else
@@ -207,3 +225,4 @@ for _, type in pairs(CHANNELS) do
 end
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", tomPoints_OnEvent)
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_SAY", tomPoints_OnEvent)
+
