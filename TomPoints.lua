@@ -161,25 +161,26 @@ function tomPoints_OnEvent(self, event, msg,...)
             -- Without this, values greater than 100 would be matched, or equal to 0 would match.
             if (match2Value > 0 and match2Value < 100  and match4Value > 0 and match4Value < 100) then
               local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
-              -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
-              msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+              -- Ignore percentages
+              -- The only place the percent sign could be is after the last match
+              -- Enforcer KX-T57 announcements  can cause a match to fire
+              -- Like: Enforcer KX-T57 98% ...
+              if (msg:sub(replaceEnd+1, replaceEnd+1) == "%") then
+                searchFromIdx = searchFromIdx + match2:len();
+              elseif (replaceBegin > 1 and tonumber(msg:sub(replaceBegin-1, replaceBegin-1))) then
+                -- This means the first match would be invalid, the pattern matched on a message like:
+                -- 123 45, but found match2 = 23 and match 4 is 45
+                searchFromIdx = searchFromIdx + match2:len();
+              elseif (replaceBegin > 1 and msg:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
+                -- This means the first match would be invalid, the pattern matched on a message like:
+                -- Enforcer KX-T57 54 98.3, but found match2 = 57 and match 4 is 54 instead of 54 98.3
+                searchFromIdx = searchFromIdx + match2:len();
+              else
+                -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
+                msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+              end
             else
               --print("match2 or match 4 is >= 100 match2: " .. match2 .. " match4: " .. match4);
-              -- Move past the first token of the invalid match
-              searchFromIdx = searchFromIdx + match2:len();
-            end
-          elseif match2 and match3 then
-            --print("hello2 " .. channel .. " msg: " .. match2 .. " , " .. match3.. ": " .. formatXYLink(match1, match2))
-            -- print(formatXYLink(match2, match3));
-            -- msg = string.gsub(msg, val, formatXYLink(match2, match3), 1)
-            local match2Value = tonumber(match2);
-            local match4Value = tonumber(match3);
-            if (match2Value > 0 and match2Value < 100  and match3Value > 0 and match3Value < 100) then
-            local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
-            -- print ("replacement starts at " .. (replaceBegin - 1) .. " and ends at: " .. (replaceEnd + 1));
-            msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match3Value));
-            else
-              --print("match2 or match 3 is >= 100 match2: " .. match2 .. " match3: " .. match3);
               -- Move past the first token of the invalid match
               searchFromIdx = searchFromIdx + match2:len();
             end
