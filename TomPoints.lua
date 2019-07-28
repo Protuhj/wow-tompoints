@@ -2,28 +2,53 @@
 -- Parses chat channels for X,Y coordinate locations to create TomTom waypoints.
 -- Heavily patterned off the ClickLinks addon.
 
-local PATTERNS = {
+-- US/British-style (period decimal delimeter, optionally separated by a comma)
+local PATTERNS_US_BRITISH = {
     "((%d+(%.?%d*))%s*,+%s*(%d+(%.?%d*)))", -- has a comma
     "((%d+(%.?%d*))%s+(%d+(%.?%d*)))",      -- no comma, just at least a space
 }
+-- European-style (comma decimal delimeter, optionally separated by a period?)
+local PATTERNS_EURO = {
+    "((%d+(%,?%d*))%s*%.+%s*(%d+(%,?%d*)))", -- has a period
+    "((%d+(%,?%d*))%s+(%d+(%,?%d*)))",      -- no period, just at least a space
+}
+
+local STR_US_BRITISH = "TomPoints is currently parsing US/British-style number formats for waypoints. This means that decimals are denoted by a period like: (23.45, 45.56)";
+local STR_EURO = "TomPoints is currently parsing European-style number formats for waypoints. This means that decimals are denoted by a comma like (23,45 45,56)";
+
+-- Default to US/British-style
+local PATTERNS = PATTERNS_US_BRITISH;
 
 local LINK_PATTERN = "[^|]|c.-|h|r";
-
+local iconNumber = 52294;
 -- addTomTomWaypoint
 -- Helper function to add the waypoint in TomTom
 -- coordXFromLink - The X coordinate from the link, this is not in units that TomTom expects.
 -- coordYFromLink - The Y coordinate from the link, this is not in units that TomTom expects.
 -- TODO: a custom icon would be nice to distinguish from normal waypoints, since these may be temporal in nature, like rares in Nazjatar, Mechagon, etc.
-local function addTomTomWaypoint(coordXFromLink, coordYFromLink)
+local function addTomTomWaypoint(coordXFromLink, coordYFromLink, text)
   if (TomTom) then
     TomTom:AddWaypoint(C_Map.GetBestMapForUnit("player"), tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100, {
-      title = nil,
+      title = "TomPoints - " .. date("%H:%M").. " - " .. text,
       persistent = nil,
       minimap = true,
-      world = true
+      world = true,
+      minimap_displayID = iconNumber,
+      worldmap_displayID = iconNumber
     })
   else
     print "TomTom not loaded!"
+  end
+end
+
+-- Arguments are in decimal format, for European-style, it needs to be converted to the opposite.
+local function doChatInsert(x, y)
+  if (TomPoints_EuropeanDecimalFormat) then
+    local euroX = x:gsub("%.", ",");
+    local euroY = y:gsub("%.", ",");
+    return ChatEdit_InsertLink(" " .. euroX .. " " .. euroY .. " ");
+  else
+    return ChatEdit_InsertLink(" " .. x .. ", " .. y .. " ")
   end
 end
 
@@ -31,16 +56,17 @@ local SetItemRef_orig = SetItemRef;
 -- TomPoints_SetItemRef
 -- Handles when the user clicks on the link
 local function TomPoints_SetItemRef(link, text, button)
-    --print("link: " .. link);
+    -- print("link: " .. link .. " text: " .. text .. " button: " .. button);
     if (string.sub(link, 1, 4) == "tpx:") then
         local x, y = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)")
         if (x and y) then
           -- If the person is trying to link the waypoint like it's an achievement, attempt to add to chat
           -- Otherwise, add the waypoint like normal if the chat edit area isn't open (maybe the shift was down by accident)
-          if IsModifiedClick("CHATLINK") and ChatEdit_InsertLink(" " .. x .. ", " .. y .. " ") then
+
+          if IsModifiedClick("CHATLINK") and doChatInsert(x,y) then
             -- print("modified click");
           else
-            addTomTomWaypoint(x, y);
+            addTomTomWaypoint(x, y, text);
           end
         -- print ("Attempted to add waypoint to " .. tonumber(x) .. "," .. tonumber(y) .. " for map: " .. C_Map.GetMapInfo(C_Map.GetBestMapForUnit("player")).name)
         else
@@ -56,7 +82,16 @@ SetItemRef = TomPoints_SetItemRef;
 -- formatXYLink
 -- Formats the TomTom coordinates x and y into the link text format WoW needs to turn it into a clickable link.
 local function formatXYLink(x, y)
-    return "|cff149bfd|Htpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
+    if (TomPoints_EuropeanDecimalFormat) then
+      local xStr = tostring(x);
+      xStr = xStr:gsub("%.", ",");
+      local yStr = tostring(y);
+      yStr = yStr:gsub("%.", ",");
+      return "|cff149bfd|Htpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. xStr .. " " .. yStr .. "]|h|r";
+    else
+      return "|cff149bfd|Htpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
+    end
+
 end
 
 -- findLinks
@@ -130,14 +165,14 @@ local function doReplaceLink(msgText, replaceStartIdx, replaceEndIdx, replaceWit
   return preText .. replaceWithText .. postText;
 end
 
---local lastEvent = nil
---function tomPoints_OnEvent(self, event, msg, player, language, channel,...)
--- TODO: throttle parsing. This gets called multiple times per message, I'm sure that can't be good for performance reasons.
-function tomPoints_OnEvent(self, event, msg,...)
-  --if (lastEvent ~= event) then
-  if (TomTom) then
-    -- If you want to see the full, un-decorated text, uncomment:
-    -- print("Here's what it really looks like: \"" .. gsub(msg, "\124", "\124\124") .. "\"");
+-- processMessage
+-- Helper function that does all the message processing.
+-- msgText - the full message text to process.
+-- returns the msgText whether it has been processed or not, if it has been processed, and a location is found, the resulting text
+-- will include the links that will be display in the chat window.
+local function processMessage(msgText)
+  -- If you want to see the full, un-decorated text, uncomment:
+    -- print("Here's what it really looks like: \"" .. gsub(msgText, "\124", "\124\124") .. "\"");
 
     local stopCount = 0;
     for key,val in pairs(PATTERNS) do
@@ -145,39 +180,41 @@ function tomPoints_OnEvent(self, event, msg,...)
       stopCount = 0;
       local searchFromIdx = 1;
 
-      local startIndex = string.find(msg, val, searchFromIdx);
-      -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msg, searchFromIdx))
+      local startIndex = string.find(msgText, val, searchFromIdx);
+      -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msgText, searchFromIdx))
       while startIndex and stopCount < 50 do
         stopCount = stopCount + 1;
-        local linkLocs = findLinks(msg);
+        local linkLocs = findLinks(msgText);
         local nextSafeIdx = isInsideLink(linkLocs, startIndex);
         if (not(nextSafeIdx)) then
-          -- msg = string.gsub(msg, val, formatURL("%1"))
-          local match1, match2, match3, match4, match5 = strmatch(msg, val, searchFromIdx)
+          -- msgText = string.gsub(msgText, val, formatURL("%1"))
+          local match1, match2, match3, match4, match5 = strmatch(msgText, val, searchFromIdx)
           if match2 and match4 then
-            local match2Value = tonumber(match2);
-            local match4Value = tonumber(match4);
+            local decimalMatch2 = match2:gsub("%,", ".");
+            local decimalMatch4 = match4:gsub("%,", ".");
+            local match2Value = tonumber(decimalMatch2);
+            local match4Value = tonumber(decimalMatch4);
             -- Need to verify that coordinates are valid.
             -- Without this, values greater than 100 would be matched, or equal to 0 would match.
             if (match2Value > 0 and match2Value < 100  and match4Value > 0 and match4Value < 100) then
-              local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
+              local replaceBegin, replaceEnd = strfind(msgText, val, searchFromIdx);
               -- Ignore percentages
               -- The only place the percent sign could be is after the last match
               -- Enforcer KX-T57 announcements  can cause a match to fire
               -- Like: Enforcer KX-T57 98% ...
-              if (msg:sub(replaceEnd+1, replaceEnd+1) == "%") then
+              if (msgText:sub(replaceEnd+1, replaceEnd+1) == "%") then
                 searchFromIdx = searchFromIdx + match2:len();
-              elseif (replaceBegin > 1 and tonumber(msg:sub(replaceBegin-1, replaceBegin-1))) then
+              elseif (replaceBegin > 1 and tonumber(msgText:sub(replaceBegin-1, replaceBegin-1))) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- 123 45, but found match2 = 23 and match 4 is 45
                 searchFromIdx = searchFromIdx + match2:len();
-              elseif (replaceBegin > 1 and msg:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
+              elseif (replaceBegin > 1 and msgText:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- Enforcer KX-T57 54 98.3, but found match2 = 57 and match 4 is 54 instead of 54 98.3
                 searchFromIdx = searchFromIdx + match2:len();
               else
                 -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
-                msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+                msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
               end
             else
               --print("match2 or match 4 is >= 100 match2: " .. match2 .. " match4: " .. match4);
@@ -185,14 +222,23 @@ function tomPoints_OnEvent(self, event, msg,...)
               searchFromIdx = searchFromIdx + match2:len();
             end
           end
-          startIndex = string.find(msg, val, searchFromIdx);
+          startIndex = string.find(msgText, val, searchFromIdx);
         else
           -- print ("Not safe index, moving to: " .. nextSafeIdx .. " stopCount: " .. stopCount);
           searchFromIdx = nextSafeIdx;
-          startIndex = string.find(msg, val, searchFromIdx);
+          startIndex = string.find(msgText, val, searchFromIdx);
         end
       end
-      end
+    end
+    return msgText;
+end
+
+--local lastEvent = nil
+-- TODO: throttle parsing. This gets called multiple times per message, I'm sure that can't be good for performance reasons.
+local function tomPoints_OnEvent(self, event, msg,...)
+  --if (lastEvent ~= event) then
+  if (TomTom) then
+    msg = processMessage(msg);
   else
     --print ("TomTom not loaded.");
   end
@@ -227,3 +273,69 @@ end
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", tomPoints_OnEvent)
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_SAY", tomPoints_OnEvent)
 
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
+
+frame:SetScript("OnEvent", function(self, event, arg1)
+    if event == "ADDON_LOADED" and arg1 == "TomPoints" then
+        -- Our saved variables, if they exist, have been loaded at this point.
+      if TomPoints_EuropeanDecimalFormat == nil then
+        -- This is the first time this addon is loaded; set SVs to default values
+        TomPoints_EuropeanDecimalFormat = false
+      end
+      if (TomPoints_EuropeanDecimalFormat) then
+        PATTERNS = PATTERNS_EURO;
+        print(STR_EURO);
+      else
+        PATTERNS = PATTERNS_US_BRITISH;
+        print(STR_US_BRITISH);
+      end
+      frame:UnregisterEvent("ADDON_LOADED");
+    end
+end)
+
+--- Configuration/testing functions
+local function printUsage(msg)
+  local currentSettingOfDecimal = TomPoints_EuropeanDecimalFormat or false;
+  if (currentSettingOfDecimal) then
+    print(STR_EURO);
+  else
+    print(STR_US_BRITISH);
+  end
+  print("/tompoints - Print this message");
+  print("/tompoints_comma, /tpcomma, /tpeuro - Turn on parsing of European-style comma decimal number formats in waypoints (23,45 45,56)");
+  print("/tompoints_period, /tpperiod, /tpus, /tpbrit  - Turn on parsing of US/British-style period decimal number formats in waypoints (23.45, 45.56)");
+  print("/tompoints_test, /tptest - Test a string to see how TomPoints parses it, the result will be printed to the chat window.");
+end
+
+SLASH_TOMPOINTS1 = "/TOMPOINTS";
+SLASH_TOMPOINTSCOMMA1 = "/TOMPOINTS_COMMA";
+SLASH_TOMPOINTSCOMMA2 = "/TPCOMMA";
+SLASH_TOMPOINTSCOMMA3 = "/TPEURO";
+SLASH_TOMPOINTSPERIOD1 = "/TOMPOINTS_PERIOD";
+SLASH_TOMPOINTSPERIOD2 = "/TPPERIOD";
+SLASH_TOMPOINTSPERIOD3 = "/TPUS";
+SLASH_TOMPOINTSPERIOD4 = "/TPBRIT";
+SLASH_TOMPOINTSTEST1 = "/TOMPOINTS_TEST";
+SLASH_TOMPOINTSTEST2 = "/TPTEST";
+SLASH_TOMPOINTSICON1 = "/TPICON"
+SLASH_TOMPOINTSREMOVE1 = "/TP"
+
+SlashCmdList["TOMPOINTSICON"] = function(msg)
+  iconNumber = tonumber(msg);
+end
+
+SlashCmdList["TOMPOINTS"] = printUsage
+SlashCmdList["TOMPOINTSPERIOD"] = function(msg)
+  TomPoints_EuropeanDecimalFormat = false;
+  PATTERNS = PATTERNS_US_BRITISH;
+  print(STR_US_BRITISH);
+end
+SlashCmdList["TOMPOINTSCOMMA"] = function(msg)
+  TomPoints_EuropeanDecimalFormat = true;
+  PATTERNS = PATTERNS_EURO;
+  print(STR_EURO);
+end
+SlashCmdList["TOMPOINTSTEST"] = function(msg)
+  print("TomPoints test result: " .. processMessage(msg or ""));
+end
