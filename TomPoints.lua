@@ -9,15 +9,17 @@ local PATTERNS = {
 
 local LINK_PATTERN = "[^|]|c.-|h|r";
 
+local lastAddedWaypoint = nil;
+
 -- addTomTomWaypoint
 -- Helper function to add the waypoint in TomTom
 -- coordXFromLink - The X coordinate from the link, this is not in units that TomTom expects.
 -- coordYFromLink - The Y coordinate from the link, this is not in units that TomTom expects.
 -- TODO: a custom icon would be nice to distinguish from normal waypoints, since these may be temporal in nature, like rares in Nazjatar, Mechagon, etc.
-local function addTomTomWaypoint(coordXFromLink, coordYFromLink)
+local function addTomTomWaypoint(coordXFromLink, coordYFromLink, text)
   if (TomTom) then
-    TomTom:AddWaypoint(C_Map.GetBestMapForUnit("player"), tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100, {
-      title = nil,
+    lastAddedWaypoint = TomTom:AddWaypoint(C_Map.GetBestMapForUnit("player"), tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100, {
+      title = "TomPoints - " .. date("%H:%M").. " - " .. text,
       persistent = nil,
       minimap = true,
       world = true
@@ -31,7 +33,7 @@ local SetItemRef_orig = SetItemRef;
 -- TomPoints_SetItemRef
 -- Handles when the user clicks on the link
 local function TomPoints_SetItemRef(link, text, button)
-    --print("link: " .. link);
+    -- print("link: " .. link .. " text: " .. text .. " button: " .. button);
     if (string.sub(link, 1, 4) == "tpx:") then
         local x, y = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)")
         if (x and y) then
@@ -40,7 +42,7 @@ local function TomPoints_SetItemRef(link, text, button)
           if IsModifiedClick("CHATLINK") and ChatEdit_InsertLink(" " .. x .. ", " .. y .. " ") then
             -- print("modified click");
           else
-            addTomTomWaypoint(x, y);
+            addTomTomWaypoint(x, y, text);
           end
         -- print ("Attempted to add waypoint to " .. tonumber(x) .. "," .. tonumber(y) .. " for map: " .. C_Map.GetMapInfo(C_Map.GetBestMapForUnit("player")).name)
         else
@@ -130,14 +132,14 @@ local function doReplaceLink(msgText, replaceStartIdx, replaceEndIdx, replaceWit
   return preText .. replaceWithText .. postText;
 end
 
---local lastEvent = nil
---function tomPoints_OnEvent(self, event, msg, player, language, channel,...)
--- TODO: throttle parsing. This gets called multiple times per message, I'm sure that can't be good for performance reasons.
-function tomPoints_OnEvent(self, event, msg,...)
-  --if (lastEvent ~= event) then
-  if (TomTom) then
-    -- If you want to see the full, un-decorated text, uncomment:
-    -- print("Here's what it really looks like: \"" .. gsub(msg, "\124", "\124\124") .. "\"");
+-- processMessage
+-- Helper function that does all the message processing.
+-- msgText - the full message text to process.
+-- returns the msgText whether it has been processed or not, if it has been processed, and a location is found, the resulting text
+-- will include the links that will be display in the chat window.
+local function processMessage(msgText)
+  -- If you want to see the full, un-decorated text, uncomment:
+    -- print("Here's what it really looks like: \"" .. gsub(msgText, "\124", "\124\124") .. "\"");
 
     local stopCount = 0;
     for key,val in pairs(PATTERNS) do
@@ -145,39 +147,39 @@ function tomPoints_OnEvent(self, event, msg,...)
       stopCount = 0;
       local searchFromIdx = 1;
 
-      local startIndex = string.find(msg, val, searchFromIdx);
-      -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msg, searchFromIdx))
+      local startIndex = string.find(msgText, val, searchFromIdx);
+      -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msgText, searchFromIdx))
       while startIndex and stopCount < 50 do
         stopCount = stopCount + 1;
-        local linkLocs = findLinks(msg);
+        local linkLocs = findLinks(msgText);
         local nextSafeIdx = isInsideLink(linkLocs, startIndex);
         if (not(nextSafeIdx)) then
-          -- msg = string.gsub(msg, val, formatURL("%1"))
-          local match1, match2, match3, match4, match5 = strmatch(msg, val, searchFromIdx)
+          -- msgText = string.gsub(msgText, val, formatURL("%1"))
+          local match1, match2, match3, match4, match5 = strmatch(msgText, val, searchFromIdx)
           if match2 and match4 then
             local match2Value = tonumber(match2);
             local match4Value = tonumber(match4);
             -- Need to verify that coordinates are valid.
             -- Without this, values greater than 100 would be matched, or equal to 0 would match.
             if (match2Value > 0 and match2Value < 100  and match4Value > 0 and match4Value < 100) then
-              local replaceBegin, replaceEnd = strfind(msg, val, searchFromIdx);
+              local replaceBegin, replaceEnd = strfind(msgText, val, searchFromIdx);
               -- Ignore percentages
               -- The only place the percent sign could be is after the last match
               -- Enforcer KX-T57 announcements  can cause a match to fire
               -- Like: Enforcer KX-T57 98% ...
-              if (msg:sub(replaceEnd+1, replaceEnd+1) == "%") then
+              if (msgText:sub(replaceEnd+1, replaceEnd+1) == "%") then
                 searchFromIdx = searchFromIdx + match2:len();
-              elseif (replaceBegin > 1 and tonumber(msg:sub(replaceBegin-1, replaceBegin-1))) then
+              elseif (replaceBegin > 1 and tonumber(msgText:sub(replaceBegin-1, replaceBegin-1))) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- 123 45, but found match2 = 23 and match 4 is 45
                 searchFromIdx = searchFromIdx + match2:len();
-              elseif (replaceBegin > 1 and msg:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
+              elseif (replaceBegin > 1 and msgText:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- Enforcer KX-T57 54 98.3, but found match2 = 57 and match 4 is 54 instead of 54 98.3
                 searchFromIdx = searchFromIdx + match2:len();
               else
                 -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
-                msg = doReplaceLink(msg, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+                msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
               end
             else
               --print("match2 or match 4 is >= 100 match2: " .. match2 .. " match4: " .. match4);
@@ -185,14 +187,23 @@ function tomPoints_OnEvent(self, event, msg,...)
               searchFromIdx = searchFromIdx + match2:len();
             end
           end
-          startIndex = string.find(msg, val, searchFromIdx);
+          startIndex = string.find(msgText, val, searchFromIdx);
         else
           -- print ("Not safe index, moving to: " .. nextSafeIdx .. " stopCount: " .. stopCount);
           searchFromIdx = nextSafeIdx;
-          startIndex = string.find(msg, val, searchFromIdx);
+          startIndex = string.find(msgText, val, searchFromIdx);
         end
       end
-      end
+    end
+    return msgText;
+end
+
+--local lastEvent = nil
+-- TODO: throttle parsing. This gets called multiple times per message, I'm sure that can't be good for performance reasons.
+local function tomPoints_OnEvent(self, event, msg,...)
+  --if (lastEvent ~= event) then
+  if (TomTom) then
+    msg = processMessage(msg);
   else
     --print ("TomTom not loaded.");
   end
@@ -227,3 +238,27 @@ end
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", tomPoints_OnEvent)
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_SAY", tomPoints_OnEvent)
 
+--- Configuration/testing functions
+local function printUsage(msg)
+  print("/tompoints - Print this message");
+  print("/tompoints_test, /tptest - Test a string to see how TomPoints parses it, the result will be printed to the chat window.");
+  print("/tompoints_removelast, /tpremove_last, /tprl - Removes from TomTom the last waypoint that was clicked on, this isn't remembered between UI reloads, or between logins.");
+end
+
+SLASH_TOMPOINTS1 = "/TOMPOINTS";
+SLASH_TOMPOINTSTEST1 = "/TOMPOINTS_TEST";
+SLASH_TOMPOINTSTEST2 = "/TPTEST";
+SLASH_TOMPOINTSREMOVELAST1 = "/TOMPOINTS_REMOVELAST";
+SLASH_TOMPOINTSREMOVELAST2 = "/TPREMOVE_LAST";
+SLASH_TOMPOINTSREMOVELAST3 = "/TPRL";
+
+SlashCmdList["TOMPOINTS"] = printUsage
+SlashCmdList["TOMPOINTSTEST"] = function(msg)
+  print("TomPoints test result: " .. processMessage(msg or ""));
+end
+SlashCmdList["TOMPOINTSREMOVELAST"] = function(msg)
+  if (lastAddedWaypoint) then
+    TomTom:RemoveWaypoint(lastAddedWaypoint);
+    lastAddedWaypoint = nil;
+  end
+end
