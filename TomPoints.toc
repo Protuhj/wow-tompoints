@@ -1,10 +1,10 @@
-## Interface: 80205
+## Interface: 80300
 ## Title: TomPoints TomTom Linker
 ## Notes: Detects Waypoints in chat and adds a link to create a TomTom waypoint
 ## Author: Protuhj
 ## SavedVariables: 
 ## OptionalDeps: 
 ## Dependencies: TomTom
-## Version: 80205_06
+## Version: 80300_07
 ## X-Child-Of: TomTom
 TomPoints.lua
