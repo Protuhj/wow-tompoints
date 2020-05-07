@@ -29,12 +29,12 @@ local function addTomTomWaypoint(coordXFromLink, coordYFromLink, text)
   end
 end
 
-local SetItemRef_orig = SetItemRef;
 -- TomPoints_SetItemRef
 -- Handles when the user clicks on the link
 local function TomPoints_SetItemRef(link, text, button)
     -- print("link: " .. link .. " text: " .. text .. " button: " .. button);
-    if (string.sub(link, 1, 4) == "tpx:") then
+    local linkType, addon, param1 = strsplit(":", link)
+    if (linkType == "garrmission" and addon == "TomPoints") then
         local x, y = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)")
         if (x and y) then
           -- If the person is trying to link the waypoint like it's an achievement, attempt to add to chat
@@ -48,17 +48,15 @@ local function TomPoints_SetItemRef(link, text, button)
         else
           print("X or Y coordinate is invalid");
         end
-    else
-        SetItemRef_orig(link, text, button);
     end
 end
-SetItemRef = TomPoints_SetItemRef;
 -- hooksecurefunc("ChatFrame_OnHyperlinkShow", TomPoints_SetItemRef); -- Doesn't work because WoW's code doesn't know how to handle the custom link type
+hooksecurefunc("SetItemRef", TomPoints_SetItemRef); -- Doesn't work because WoW's code doesn't know how to handle the custom link type
 
 -- formatXYLink
 -- Formats the TomTom coordinates x and y into the link text format WoW needs to turn it into a clickable link.
 local function formatXYLink(x, y)
-    return "|cff149bfd|Htpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
+    return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
 end
 
 -- findLinks

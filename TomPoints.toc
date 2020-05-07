@@ -5,6 +5,6 @@
 ## SavedVariables: 
 ## OptionalDeps: 
 ## Dependencies: TomTom
-## Version: 80300_07
+## Version: 80300_08
 ## X-Child-Of: TomTom
 TomPoints.lua
