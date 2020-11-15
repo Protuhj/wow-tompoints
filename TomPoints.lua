@@ -59,6 +59,14 @@ local function formatXYLink(x, y)
     return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
 end
 
+-- formatPinLink
+-- Formats the coordinates x and y into the link text format WoW needs to turn it into a clickable link for MapPins.
+local function formatPinLink(x, y)
+    map = C_Map.GetBestMapForUnit("player");
+    --print("Map : " .. map);
+    return "|cffffff00|Hworldmap:" .. map .. ":"..format("%d", tonumber(x)*100)..":"..format("%d", tonumber(y)*100).." |h[|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a " .. x .. ", " .. y .. "]|h|r";
+end
+
 -- findLinks
 -- Find the location of links in the message text, or nil if none found. Returns an array of begin and end index pairs, so
 -- the length will always be number of links * 2
@@ -177,7 +185,11 @@ local function processMessage(msgText)
                 searchFromIdx = searchFromIdx + match2:len();
               else
                 -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
-                msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+                if (TomTom) then
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+                else
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatPinLink(match2Value, match4Value));
+                end
               end
             else
               --print("match2 or match 4 is >= 100 match2: " .. match2 .. " match4: " .. match4);
@@ -200,11 +212,7 @@ end
 -- TODO: throttle parsing. This gets called multiple times per message, I'm sure that can't be good for performance reasons.
 local function tomPoints_OnEvent(self, event, msg,...)
   --if (lastEvent ~= event) then
-  if (TomTom) then
     msg = processMessage(msg);
-  else
-    --print ("TomTom not loaded.");
-  end
   return false, msg, ...
 end
 
