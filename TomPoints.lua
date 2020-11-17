@@ -194,7 +194,12 @@ end
 -- replaceBlizzPinLink
 -- Replaces Blizzard's Map Pin link with a TomPoints link, so we can share it like other waypoint links
 local function replaceBlizzPinLink(msgText)
-    local matchPattern = "|cffffff00|Hworldmap:%d+:(%d+):(%d+)|h%[|A:Waypoint%-MapPin%-ChatIcon:%d+:%d+:%d+:%d+|a Map Pin Location%]|h|r";
+    -- Needed for pin replacement to work in other languages
+    -- Defined in GlobalStrings.lua
+    -- https://www.townlong-yak.com/framexml/live/GlobalStrings.lua
+    local localizedText = MAP_PIN_HYPERLINK; -- Works out to: "|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a Map Pin Location"
+    localizedText = gsub(localizedText, "%-", "%%-");
+    local matchPattern = "|cffffff00|Hworldmap:%d+:(%d+):(%d+)|h%[" .. localizedText .. "%]|h|r";
     local stopCount = 0;
     local searchFromIdx = 1;
 
