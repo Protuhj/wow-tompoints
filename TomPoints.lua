@@ -11,6 +11,26 @@ local LINK_PATTERN = "[^|]|c.-|h|r";
 
 local lastAddedWaypoint = nil;
 
+-- formatXYLink
+-- Formats the TomTom coordinates x and y into the link text format WoW needs to turn it into a clickable link.
+-- pinActive - if true, an icon is added to the link
+local function formatXYLink(x, y, pinActive)
+    if pinActive then
+        return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a" .. x .. ", " .. y .. "]|h|r";
+    else
+        return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
+    end
+end
+
+-- formatPinLink
+-- Formats the coordinates x and y into the link text format WoW needs to turn it into a clickable link for MapPins.
+-- Don't use this link format because you can't easily share it for now. I have to assume they'll allow it in the future.
+local function formatPinLink(x, y)
+    map = C_Map.GetBestMapForUnit("player");
+    --print("Map : " .. map);
+    return "|cffffff00|Hworldmap:" .. map .. ":"..format("%d", tonumber(x)*100)..":"..format("%d", tonumber(y)*100).."|h[|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a " .. x .. ", " .. y .. "]|h|r";
+end
+
 -- addTomTomWaypoint
 -- Helper function to add the waypoint in TomTom
 -- coordXFromLink - The X coordinate from the link, this is not in units that TomTom expects.
@@ -29,22 +49,69 @@ local function addTomTomWaypoint(coordXFromLink, coordYFromLink, text)
   end
 end
 
+-- addUiPinWaypoint
+-- Helper function to add the waypoint using the new Pin system
+-- coordXFromLink - The X coordinate from the link, this is not in units that WoW expects.
+-- coordYFromLink - The Y coordinate from the link, this is not in units that WoW expects.
+-- quiet          - should this function not announce it's creating a pin?
+local function addUiPinWaypoint(coordXFromLink, coordYFromLink, quiet)
+    map = C_Map.GetBestMapForUnit("player");
+    if C_Map.CanSetUserWaypointOnMap(map) then
+        C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100));
+        if not(quiet) then
+            print("TomPoints created Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), true));
+        end
+    else
+        print("TomPoints can't create Map Pin in this zone");
+    end
+end
+
 -- TomPoints_SetItemRef
 -- Handles when the user clicks on the link
 local function TomPoints_SetItemRef(link, text, button)
     -- print("link: " .. link .. " text: " .. text .. " button: " .. button);
     local linkType, addon, param1 = strsplit(":", link)
+    --print("Type: " .. linkType);
+    --if (linkType == "worldmap" and IsModifiedClick("CHATLINK") and ChatEdit_InsertLink(C_Map.GetUserWaypointHyperlink())) then
+    --    print("Pasted in link");
+    --else
     if (linkType == "garrmission" and addon == "TomPoints") then
         local x, y = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)")
         if (x and y) then
-          -- If the person is trying to link the waypoint like it's an achievement, attempt to add to chat
-          -- Otherwise, add the waypoint like normal if the chat edit area isn't open (maybe the shift was down by accident)
-          if IsModifiedClick("CHATLINK") and ChatEdit_InsertLink(" " .. x .. ", " .. y .. " ") then
-            -- print("modified click");
-          else
-            addTomTomWaypoint(x, y, text);
-          end
-        -- print ("Attempted to add waypoint to " .. tonumber(x) .. "," .. tonumber(y) .. " for map: " .. C_Map.GetMapInfo(C_Map.GetBestMapForUnit("player")).name)
+            -- If the person is trying to link the waypoint like it's an achievement, attempt to add to chat
+            -- Otherwise, add the waypoint like normal if the chat edit area isn't open (maybe the shift was down by accident)
+            linkAdded = false; 
+            if IsModifiedClick("CHATLINK") then
+                if (addonConfig["ShareAsPin"]) then -- share map pins instead of raw text
+                    map = C_Map.GetBestMapForUnit("player");
+                    if C_Map.CanSetUserWaypointOnMap(map) then
+                        curPin = C_Map.GetUserWaypoint();
+                        -- Have to create the pin to be able to share it
+                        addUiPinWaypoint(x, y, true);
+                        linkAdded = ChatEdit_InsertLink(C_Map.GetUserWaypointHyperlink());
+                        if curPin then
+                            C_Map.SetUserWaypoint(curPin);
+                        end
+                    else
+                        print("TomPoints can't create Map Pin in this zone; can't share as map pin");
+                    end
+                end
+                if not(linkAdded) then
+                    linkAdded = ChatEdit_InsertLink(" " .. x .. ", " .. y .. " ");
+                end
+                
+            end
+            if not(linkAdded) then
+                if (TomTom) then
+                    addTomTomWaypoint(x, y, text);
+                    if (addonConfig["AlwaysCreateMapPin"]) then
+                        addUiPinWaypoint(x, y);
+                    end
+                else
+                    addUiPinWaypoint(x, y);
+                end
+            end
+            -- print ("Attempted to add waypoint to " .. tonumber(x) .. "," .. tonumber(y) .. " for map: " .. C_Map.GetMapInfo(C_Map.GetBestMapForUnit("player")).name)
         else
           print("X or Y coordinate is invalid");
         end
@@ -52,20 +119,6 @@ local function TomPoints_SetItemRef(link, text, button)
 end
 -- hooksecurefunc("ChatFrame_OnHyperlinkShow", TomPoints_SetItemRef); -- Doesn't work because WoW's code doesn't know how to handle the custom link type
 hooksecurefunc("SetItemRef", TomPoints_SetItemRef); -- Doesn't work because WoW's code doesn't know how to handle the custom link type
-
--- formatXYLink
--- Formats the TomTom coordinates x and y into the link text format WoW needs to turn it into a clickable link.
-local function formatXYLink(x, y)
-    return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
-end
-
--- formatPinLink
--- Formats the coordinates x and y into the link text format WoW needs to turn it into a clickable link for MapPins.
-local function formatPinLink(x, y)
-    map = C_Map.GetBestMapForUnit("player");
-    --print("Map : " .. map);
-    return "|cffffff00|Hworldmap:" .. map .. ":"..format("%d", tonumber(x)*100)..":"..format("%d", tonumber(y)*100).." |h[|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a " .. x .. ", " .. y .. "]|h|r";
-end
 
 -- findLinks
 -- Find the location of links in the message text, or nil if none found. Returns an array of begin and end index pairs, so
@@ -138,6 +191,36 @@ local function doReplaceLink(msgText, replaceStartIdx, replaceEndIdx, replaceWit
   return preText .. replaceWithText .. postText;
 end
 
+-- replaceBlizzPinLink
+-- Replaces Blizzard's Map Pin link with a TomPoints link, so we can share it like other waypoint links
+local function replaceBlizzPinLink(msgText)
+    local matchPattern = "|cffffff00|Hworldmap:%d+:(%d+):(%d+)|h%[|A:Waypoint%-MapPin%-ChatIcon:%d+:%d+:%d+:%d+|a Map Pin Location%]|h|r";
+    local stopCount = 0;
+    local searchFromIdx = 1;
+
+    local replaceBegin, replaceEnd = strfind(msgText, matchPattern, searchFromIdx);
+    while replaceBegin and stopCount < 500 do
+        --print("Begin: " .. tostring(replaceBegin) .. " end: " .. tostring(replaceEnd));
+        stopCount = stopCount + 1;
+        local linkText = msgText:sub(replaceBegin, replaceEnd);
+        local xCoord, yCoord = strmatch(linkText, matchPattern, 1);
+        if xCoord ~= nil and yCoord ~= nil then
+            xCoordFloatStr = tostring(tonumber(xCoord) / 100.);
+            yCoordFloatStr = tostring(tonumber(yCoord) / 100.);
+            --print("Found link: with xCoord: " .. xCoordFloatStr .. " yCoord: " .. yCoordFloatStr);
+            msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, xCoordFloatStr .. " " .. yCoordFloatStr .. " ");
+            searchFromIdx = searchFromIdx + xCoordFloatStr:len();
+            --print("Replaced, msgText now: " .. msgText);
+        else
+            --print("Coords were nil");
+            -- nudge it forward
+            searchFromIdx = searchFromIdx + 1;
+        end
+        replaceBegin, replaceEnd = strfind(msgText, matchPattern, searchFromIdx);
+    end
+    return msgText
+end
+
 -- processMessage
 -- Helper function that does all the message processing.
 -- msgText - the full message text to process.
@@ -146,7 +229,9 @@ end
 local function processMessage(msgText)
   -- If you want to see the full, un-decorated text, uncomment:
     -- print("Here's what it really looks like: \"" .. gsub(msgText, "\124", "\124\124") .. "\"");
-
+    if addonConfig["ReplaceBlizzardLinks"] then
+        msgText = replaceBlizzPinLink(msgText);
+    end
     local stopCount = 0;
     for key,val in pairs(PATTERNS) do
       -- Attempt to limit the function so it doesn't potentially infinitely-loop
@@ -186,9 +271,9 @@ local function processMessage(msgText)
               else
                 -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
                 if (TomTom) then
-                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value));
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, addonConfig["AlwaysCreateMapPin"]));
                 else
-                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatPinLink(match2Value, match4Value));
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, true));
                 end
               end
             else
@@ -243,6 +328,30 @@ for _, type in pairs(CHANNELS) do
 end
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_CHANNEL", tomPoints_OnEvent)
 --ChatFrame_AddMessageEventFilter("CHAT_MSG_SAY", tomPoints_OnEvent)
+
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("VARIABLES_LOADED")
+
+frame:SetScript("OnEvent", function(self, event, arg1)
+    if event == "VARIABLES_LOADED" then
+        -- Our saved variables, if they exist, have been loaded at this point.
+      if addonConfig == nil then
+        -- This is the first time this addon is loaded; set SVs to default values
+        addonConfig = {};
+        print("Created addonConfig");
+      end
+      if addonConfig["AlwaysCreateMapPin"] == nil then
+        addonConfig["AlwaysCreateMapPin"] = false;
+      end
+      if addonConfig["ShareAsPin"] == nil then
+        addonConfig["ShareAsPin"] = true;
+      end
+      if addonConfig["ReplaceBlizzardLinks"] == nil then
+        addonConfig["ReplaceBlizzardLinks"] = false;
+      end
+      frame:UnregisterEvent("VARIABLES_LOADED");
+    end
+end)
 
 --- Configuration/testing functions
 local function printUsage(msg)
