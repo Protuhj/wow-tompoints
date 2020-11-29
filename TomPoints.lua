@@ -13,13 +13,14 @@ local lastAddedWaypoint = nil;
 
 -- formatXYLink
 -- Formats the TomTom coordinates x and y into the link text format WoW needs to turn it into a clickable link.
--- pinActive - if true, an icon is added to the link
-local function formatXYLink(x, y, pinActive)
-    if pinActive then
-        return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a" .. x .. ", " .. y .. "]|h|r";
-    else
-        return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).." |h[" .. x .. ", " .. y .. "]|h|r";
+local function formatXYLink(x, y, mapID)
+    local curMap = C_Map.GetBestMapForUnit("player");
+    local iconString = "";
+    -- If the link is for a different zone, show an icon to distinguish it from same-zone links
+    if (mapID ~= curMap) then
+        iconString = CreateAtlasMarkup("warlockportalalliance", 15, 15) .. " ";
     end
+    return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).."tpw:"..format("%d", mapID).." |h[" .. iconString .. x .. ", " .. y .. "]|h|r";
 end
 
 -- formatPinLink
@@ -36,9 +37,9 @@ end
 -- coordXFromLink - The X coordinate from the link, this is not in units that TomTom expects.
 -- coordYFromLink - The Y coordinate from the link, this is not in units that TomTom expects.
 -- TODO: a custom icon would be nice to distinguish from normal waypoints, since these may be temporal in nature, like rares in Nazjatar, Mechagon, etc.
-local function addTomTomWaypoint(coordXFromLink, coordYFromLink, text)
+local function addTomTomWaypoint(coordXFromLink, coordYFromLink, mapIDFromLink, text)
   if (TomTom) then
-    lastAddedWaypoint = TomTom:AddWaypoint(C_Map.GetBestMapForUnit("player"), tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100, {
+    lastAddedWaypoint = TomTom:AddWaypoint(tonumber(mapIDFromLink), tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100, {
       title = "TomPoints - " .. date("%H:%M").. " - " .. text,
       persistent = nil,
       minimap = true,
@@ -54,12 +55,12 @@ end
 -- coordXFromLink - The X coordinate from the link, this is not in units that WoW expects.
 -- coordYFromLink - The Y coordinate from the link, this is not in units that WoW expects.
 -- quiet          - should this function not announce it's creating a pin?
-local function addUiPinWaypoint(coordXFromLink, coordYFromLink, quiet)
-    map = C_Map.GetBestMapForUnit("player");
+local function addUiPinWaypoint(coordXFromLink, coordYFromLink, mapIDFromLink, quiet)
+    map = tonumber(mapIDFromLink);
     if C_Map.CanSetUserWaypointOnMap(map) then
         C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100));
         if not(quiet) then
-            print("TomPoints created Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), true));
+            print("TomPoints created Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), map) .. " in " .. C_Map.GetMapInfo(map).name);
         end
     else
         print("TomPoints can't create Map Pin in this zone");
@@ -76,18 +77,18 @@ local function TomPoints_SetItemRef(link, text, button)
     --    print("Pasted in link");
     --else
     if (linkType == "garrmission" and addon == "TomPoints") then
-        local x, y = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)")
-        if (x and y) then
+        local x, y, m = strmatch(link, "tpx:(%d+%.%d+)tpy:(%d+%.%d+)tpw:(%d+)")
+        if (x and y and m) then
+            map = tonumber(m);
             -- If the person is trying to link the waypoint like it's an achievement, attempt to add to chat
             -- Otherwise, add the waypoint like normal if the chat edit area isn't open (maybe the shift was down by accident)
             linkAdded = false; 
             if IsModifiedClick("CHATLINK") then
                 if (addonConfig["ShareAsPin"]) then -- share map pins instead of raw text
-                    map = C_Map.GetBestMapForUnit("player");
                     if C_Map.CanSetUserWaypointOnMap(map) then
                         curPin = C_Map.GetUserWaypoint();
                         -- Have to create the pin to be able to share it
-                        addUiPinWaypoint(x, y, true);
+                        addUiPinWaypoint(x, y, map, true);
                         linkAdded = ChatEdit_InsertLink(C_Map.GetUserWaypointHyperlink());
                         if curPin then
                             C_Map.SetUserWaypoint(curPin);
@@ -103,12 +104,12 @@ local function TomPoints_SetItemRef(link, text, button)
             end
             if not(linkAdded) then
                 if (TomTom) then
-                    addTomTomWaypoint(x, y, text);
+                    addTomTomWaypoint(x, y, m, text);
                     if (addonConfig["AlwaysCreateMapPin"]) then
-                        addUiPinWaypoint(x, y);
+                        addUiPinWaypoint(x, y, m);
                     end
                 else
-                    addUiPinWaypoint(x, y);
+                    addUiPinWaypoint(x, y, m);
                 end
             end
             -- print ("Attempted to add waypoint to " .. tonumber(x) .. "," .. tonumber(y) .. " for map: " .. C_Map.GetMapInfo(C_Map.GetBestMapForUnit("player")).name)
@@ -194,27 +195,24 @@ end
 -- replaceBlizzPinLink
 -- Replaces Blizzard's Map Pin link with a TomPoints link, so we can share it like other waypoint links
 local function replaceBlizzPinLink(msgText)
-    -- Needed for pin replacement to work in other languages
-    -- Defined in GlobalStrings.lua
-    -- https://www.townlong-yak.com/framexml/live/GlobalStrings.lua
-    local localizedText = MAP_PIN_HYPERLINK; -- Works out to: "|A:Waypoint-MapPin-ChatIcon:13:13:0:0|a Map Pin Location"
-    localizedText = gsub(localizedText, "%-", "%%-");
-    local matchPattern = "|cffffff00|Hworldmap:%d+:(%d+):(%d+)|h%[" .. localizedText .. "%]|h|r";
+    -- Use the [^%]]+ to match pin links in (hopefully) any language
+    local matchPattern = "|cffffff00|Hworldmap:(%d+):(%d+):(%d+)|h%[|A:Waypoint%-MapPin%-ChatIcon:13:13:0:0|a [^%]]+%]|h|r";
     local stopCount = 0;
     local searchFromIdx = 1;
 
     local replaceBegin, replaceEnd = strfind(msgText, matchPattern, searchFromIdx);
-    while replaceBegin and stopCount < 500 do
+    while replaceBegin and stopCount < 50 do
         --print("Begin: " .. tostring(replaceBegin) .. " end: " .. tostring(replaceEnd));
         stopCount = stopCount + 1;
         local linkText = msgText:sub(replaceBegin, replaceEnd);
-        local xCoord, yCoord = strmatch(linkText, matchPattern, 1);
-        if xCoord ~= nil and yCoord ~= nil then
-            xCoordFloatStr = tostring(tonumber(xCoord) / 100.);
-            yCoordFloatStr = tostring(tonumber(yCoord) / 100.);
-            --print("Found link: with xCoord: " .. xCoordFloatStr .. " yCoord: " .. yCoordFloatStr);
-            msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, xCoordFloatStr .. " " .. yCoordFloatStr .. " ");
-            searchFromIdx = searchFromIdx + xCoordFloatStr:len();
+        local mapID, xCoord, yCoord = strmatch(linkText, matchPattern, 1);
+        if mapID ~= nil and xCoord ~= nil and yCoord ~= nil then
+            xCoordFloat = tonumber(xCoord) / 100.;
+            yCoordFloat = tonumber(yCoord) / 100.;
+            --print("Found link: with xCoord: " .. xCoordFloat .. " yCoord: " .. yCoordFloatStr);
+            local replacementString = formatXYLink(xCoordFloat, yCoordFloat, tonumber(mapID));
+            msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, replacementString);
+            searchFromIdx = searchFromIdx + replacementString:len();
             --print("Replaced, msgText now: " .. msgText);
         else
             --print("Coords were nil");
@@ -237,6 +235,7 @@ local function processMessage(msgText)
     if addonConfig["ReplaceBlizzardLinks"] then
         msgText = replaceBlizzPinLink(msgText);
     end
+    mapID = C_Map.GetBestMapForUnit("player");
     local stopCount = 0;
     for key,val in pairs(PATTERNS) do
       -- Attempt to limit the function so it doesn't potentially infinitely-loop
@@ -246,10 +245,15 @@ local function processMessage(msgText)
       local startIndex = string.find(msgText, val, searchFromIdx);
       -- print ("Testing string starting from " .. searchFromIdx .. " : " .. strsub(msgText, searchFromIdx))
       while startIndex and stopCount < 50 do
+        --print("message len: " .. tostring(msgText:len()) .. " text: " .. msgText);
         stopCount = stopCount + 1;
         local linkLocs = findLinks(msgText);
         local nextSafeIdx = isInsideLink(linkLocs, startIndex);
         if (not(nextSafeIdx)) then
+          -- Move the searchFromIdx up so if we replace a pair in a previous loop, this index doesn't lag so far behind
+          -- if one of the bad matches below, that changes searchFromIdx is hit
+          -- testing with "50 50 test2 50 50" resulted in one link created only instead of 2 without this change
+          searchFromIdx = startIndex;
           -- msgText = string.gsub(msgText, val, formatURL("%1"))
           local match1, match2, match3, match4, match5 = strmatch(msgText, val, searchFromIdx)
           if match2 and match4 then
@@ -265,20 +269,23 @@ local function processMessage(msgText)
               -- Like: Enforcer KX-T57 98% ...
               if (msgText:sub(replaceEnd+1, replaceEnd+1) == "%") then
                 searchFromIdx = searchFromIdx + match2:len();
+                --print("1 Skipping 1: " .. match1 .. " 2: " .. match2);
               elseif (replaceBegin > 1 and tonumber(msgText:sub(replaceBegin-1, replaceBegin-1))) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- 123 45, but found match2 = 23 and match 4 is 45
                 searchFromIdx = searchFromIdx + match2:len();
+                --print("2 Skipping 1: " .. match1 .. " 2: " .. match2);
               elseif (replaceBegin > 1 and msgText:sub(replaceBegin-1, replaceBegin-1):find("%a")) then
                 -- This means the first match would be invalid, the pattern matched on a message like:
                 -- Enforcer KX-T57 54 98.3, but found match2 = 57 and match 4 is 54 instead of 54 98.3
                 searchFromIdx = searchFromIdx + match2:len();
+                --print("3 Skipping 1: " .. match1 .. " 2: " .. match2 .. " limit: " .. tostring(stopCount) .. " searchFromIdx: " .. tostring(searchFromIdx));
               else
                 -- print ("replacement starts at " .. (replaceBegin - 1)  .. " and ends at: " .. (replaceEnd + 1));
                 if (TomTom) then
-                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, addonConfig["AlwaysCreateMapPin"]));
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, mapID));
                 else
-                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, true));
+                   msgText = doReplaceLink(msgText, replaceBegin - 1, replaceEnd + 1, formatXYLink(match2Value, match4Value, mapID));
                 end
               end
             else
@@ -287,7 +294,9 @@ local function processMessage(msgText)
               searchFromIdx = searchFromIdx + match2:len();
             end
           end
+          --local preSI = startIndex
           startIndex = string.find(msgText, val, searchFromIdx);
+          --print("changing startIndex, pre: " .. tostring(preSI) .. " post: " .. tostring(startIndex));
         else
           -- print ("Not safe index, moving to: " .. nextSafeIdx .. " stopCount: " .. stopCount);
           searchFromIdx = nextSafeIdx;

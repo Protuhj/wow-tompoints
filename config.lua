@@ -55,3 +55,11 @@ cb3:SetScript("OnClick",
     addonConfig["ReplaceBlizzardLinks"] = self:GetChecked();
    end
 );
+local infoLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall");
+infoLabel:SetPoint("TOPLEFT", 35, -105);
+infoLabel:SetPoint("BOTTOMRIGHT", panel, "TOPRIGHT", 35, -165);
+infoLabel:SetJustifyH("LEFT");
+infoLabel:SetJustifyV("TOP");
+local text = "If you see a link with an " .. CreateAtlasMarkup("warlockportalalliance", 15, 15) .. " icon at the beginning, that means the waypoint is in a different zone.";
+text = text .. "|n|nExample: |cff149bfd|Hgarrmission:TomPoints: |h[" .. CreateAtlasMarkup("warlockportalalliance", 15, 15) .. " 23.45 45.22]|h|r"
+infoLabel:SetText(text);
