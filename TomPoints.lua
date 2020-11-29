@@ -17,10 +17,16 @@ local function formatXYLink(x, y, mapID)
     local curMap = C_Map.GetBestMapForUnit("player");
     local iconString = "";
     -- If the link is for a different zone, show an icon to distinguish it from same-zone links
-    if (mapID ~= curMap) then
-        iconString = CreateAtlasMarkup("warlockportalalliance", 15, 15) .. " ";
+    if (mapID == curMap) then
+        -- Only show an icon if the user is choosing the Blizzard-style links
+        if addonConfig["WhichStyle"] == "blizzard" then
+            iconString = CreateAtlasMarkup("Waypoint-MapPin-ChatIcon", 13, 13);
+        end
+        return "|cff" .. addonConfig["LinkColor"] .. "|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).."tpw:"..format("%d", mapID).." |h[" .. iconString .. x .. ", " .. y .. "]|h|r";
+    else
+        iconString = CreateAtlasMarkup("warlockportalalliance", 15, 15);
+        return "|cff" .. addonConfig["LinkColor"] .. "|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).."tpw:"..format("%d", mapID).." |h[" .. iconString .. x .. ", " .. y .. "]|h|r";
     end
-    return "|cff149bfd|Hgarrmission:TomPoints:tpx:"..format("%.02f", x).."tpy:"..format("%.02f", y).."tpw:"..format("%d", mapID).." |h[" .. iconString .. x .. ", " .. y .. "]|h|r";
 end
 
 -- formatPinLink
@@ -60,7 +66,12 @@ local function addUiPinWaypoint(coordXFromLink, coordYFromLink, mapIDFromLink, q
     if C_Map.CanSetUserWaypointOnMap(map) then
         C_Map.SetUserWaypoint(UiMapPoint.CreateFromCoordinates(map, tonumber(coordXFromLink)/100, tonumber(coordYFromLink)/100));
         if not(quiet) then
-            print("TomPoints created Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), map) .. " in " .. C_Map.GetMapInfo(map).name);
+            if addonConfig["ActivateMapPin"] then
+                C_SuperTrack.SetSuperTrackedUserWaypoint(true);
+                print("TomPoints created and activated Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), map) .. " in " .. C_Map.GetMapInfo(map).name);
+            else
+                print("TomPoints created Map Pin: " .. formatXYLink(tonumber(coordXFromLink), tonumber(coordYFromLink), map) .. " in " .. C_Map.GetMapInfo(map).name);
+            end
         end
     else
         print("TomPoints can't create Map Pin in this zone");
@@ -357,11 +368,20 @@ frame:SetScript("OnEvent", function(self, event, arg1)
       if addonConfig["AlwaysCreateMapPin"] == nil then
         addonConfig["AlwaysCreateMapPin"] = false;
       end
+      if addonConfig["ActivateMapPin"] == nil then
+        addonConfig["ActivateMapPin"] = true;
+      end
       if addonConfig["ShareAsPin"] == nil then
         addonConfig["ShareAsPin"] = true;
       end
       if addonConfig["ReplaceBlizzardLinks"] == nil then
         addonConfig["ReplaceBlizzardLinks"] = false;
+      end
+      if addonConfig["LinkColor"] == nil then
+        addonConfig["LinkColor"] = "149bfd";
+      end
+      if addonConfig["WhichStyle"] == nil then
+        addonConfig["WhichStyle"] = "tompoints";
       end
       frame:UnregisterEvent("VARIABLES_LOADED");
     end
