@@ -2,6 +2,8 @@
 -- Parses chat channels for X,Y coordinate locations to create TomTom waypoints.
 -- Heavily patterned off the ClickLinks addon.
 
+local addonName, addon = ...
+
 local PATTERNS = {
     "((%d+(%.?%d*))%s*,+%s*(%d+(%.?%d*)))", -- has a comma
     "((%d+(%.?%d*))%s+(%d+(%.?%d*)))",      -- no comma, just at least a space
