@@ -4,6 +4,6 @@
 ## Author: Protuhj
 ## SavedVariables: addonConfig
 ## OptionalDeps: TomTom
-## Version: 100105_26
+## Version: 100200_27
 TomPoints.lua
 config.lua
