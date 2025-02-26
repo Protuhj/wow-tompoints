@@ -132,4 +132,9 @@ panel:SetScript("OnShow", function(panel)
   panel:SetScript("OnShow", nil);
 end)
 panel.name = "TomPoints";
-InterfaceOptions_AddCategory(panel);
+if InterfaceOptions_AddCategory then
+    InterfaceOptions_AddCategory(panel);
+else
+    addon.category = Settings.RegisterCanvasLayoutCategory(panel, addonName)
+    Settings.RegisterAddOnCategory(addon.category)
+end
