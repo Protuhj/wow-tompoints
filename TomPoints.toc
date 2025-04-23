@@ -1,9 +1,9 @@
-## Interface: 110100
+## Interface: 110105
 ## Title: TomPoints TomTom/MapPin Linker
 ## Notes: Detects Waypoints in chat and adds a link to create a TomTom waypoint or a MapPin if you don't have TomTom
 ## Author: Protuhj
 ## SavedVariables: addonConfig
 ## OptionalDeps: TomTom
-## Version: 110100_34
+## Version: 110105_35
 TomPoints.lua
 config.lua
